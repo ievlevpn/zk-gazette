@@ -1,0 +1,32 @@
+{
+  "title": "THE MORNING GAZETTE",
+  "city": "Zurich",
+  "timezone": "Europe/Zurich",
+  "llm": "auto",
+  "interests": "Long-form essays on history, science, literature, philosophy, architecture, design, and classical music. Avoid clickbait and short news blurbs.",
+  "watch_tab_title": "Events",
+  "watch_rail_title": "Event Watch",
+  "watch_heading": "Upcoming Local Events",
+  "weather": {
+    "enabled": true,
+    "latitude": 47.3769,
+    "longitude": 8.5417
+  },
+  "calendar": {
+    "enabled": true,
+    "days_ahead": 7,
+    "ics_urls": []
+  },
+  "watches": [],
+  "feeds": [
+    { "name": "Aeon Essays", "kicker": "PHILOSOPHY & CULTURE", "url": "https://aeon.co/feed.rss" },
+    { "name": "The Public Domain Review", "kicker": "HISTORY & ART", "url": "https://publicdomainreview.org/rss.xml" },
+    { "name": "Nautilus", "kicker": "SCIENCE & IDEAS", "url": "https://nautil.us/feed" },
+    { "name": "The New Atlantis", "kicker": "CRAFT & SOCIETY", "url": "https://www.thenewatlantis.com/feed" },
+    { "name": "Literary Hub", "kicker": "LITERATURE", "url": "https://lithub.com/feed/" }
+  ],
+  "push_ssh": {
+    "ssh_host": "",
+    "remote_path": ""
+  }
+}

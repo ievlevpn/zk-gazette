@@ -1,0 +1,5 @@
+{
+  "url": "https://example.com/gazette/today.json",
+  "tags": ["gazette"],
+  "savePrompt": "annotated"
+}

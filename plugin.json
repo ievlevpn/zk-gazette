@@ -1,0 +1,17 @@
+{
+  "id": "gazette",
+  "name": "Gazette",
+  "version": "0.1.0",
+  "api": 0,
+  "minApp": "0.12.0",
+  "author": "Pavel Ievlev",
+  "description": "A personal daily e-ink newspaper from any Edition JSON URL or local drop: customizable widgets (weather, calendar, event watches, facts, notes, quotes), server-editable layouts, and preview-first reading with optional Save to Zotero.",
+  "main": "main.js",
+  "permissions": [
+    "net:*",
+    "zotero:create-items",
+    "zotero:notes",
+    "zotero:tags",
+    "background"
+  ]
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+zk-plugin-key.json
+settings.json
+generator/config.json
+generator/state.json
+generator/today.json
+generator/editions/
+generator/logs/
+generator/__pycache__/
+.DS_Store
