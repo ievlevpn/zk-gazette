@@ -687,7 +687,7 @@ function renderCustomNode(
 
 // ───────────────────────────── Section Renderers ─────────────────────────────
 
-function renderFrontPage(ed: GazetteEdition, state: State, prefs: Prefs): Block {
+function renderFrontPage(ed: GazetteEdition, state: State, prefs: Prefs): Child[] {
   // Server-side custom layout template (if provided by the edition generator):
   if (ed.layout) {
     const picked = landscapeBroadsheet()
@@ -698,7 +698,7 @@ function renderFrontPage(ed: GazetteEdition, state: State, prefs: Prefs): Block 
     if (picked) {
       const widgetsById = new Map(resolveWidgets(ed).map((w) => [w.id, w]));
       const rendered = renderCustomNode(picked, ed, state, prefs, widgetsById, { n: 0 }, landscapeBroadsheet());
-      if (rendered) return rendered;
+      if (rendered) return [rendered];
     }
   }
   const articlesTab = ed.tabs.find((t): t is Extract<GazetteTab, { kind: "articles" }> => t.kind === "articles");
@@ -724,19 +724,16 @@ function renderFrontPage(ed: GazetteEdition, state: State, prefs: Prefs): Block 
         ],
         { gap: "small", width: "48%" },
       );
-      return zk.ui.row([col1, col2], { align: "top", gap: "large" });
+      return [zk.ui.row([col1, col2], { align: "top", gap: "large" })];
     }
-    return zk.ui.column(
-      [
-        lead && leadBlock(lead, state),
-        lead && dispatches.length > 0 && zk.ui.divider(),
-        ...dispatches.flatMap((a, idx): Child[] => [
-          dispatchBlock(a, state),
-          idx < dispatches.length - 1 && zk.ui.divider(),
-        ]),
-      ],
-      { gap: "small" },
-    );
+    return [
+      lead && leadBlock(lead, state),
+      lead && dispatches.length > 0 && zk.ui.divider(),
+      ...dispatches.flatMap((a, idx): Child[] => [
+        dispatchBlock(a, state),
+        idx < dispatches.length - 1 && zk.ui.divider(),
+      ]),
+    ];
   }
 
   if (landscapeBroadsheet() && lead) {
@@ -762,7 +759,7 @@ function renderFrontPage(ed: GazetteEdition, state: State, prefs: Prefs): Block 
       railWidgets.slice(0, 2).map((w) => renderWidget(w, true)),
       { gap: "small", width: "29%" },
     );
-    return zk.ui.row([col1, col2, col3], { align: "top", gap: "medium" });
+    return [zk.ui.row([col1, col2, col3], { align: "top", gap: "medium" })];
   }
 
   const mainColChildren: Child[] = [];
@@ -781,25 +778,22 @@ function renderFrontPage(ed: GazetteEdition, state: State, prefs: Prefs): Block 
       visibleWidgets.map((w) => renderWidget(w, false)),
       { gap: "medium", width: "40%" },
     );
-    return zk.ui.row([mainCol, rail], { align: "top", gap: "large" });
+    return [zk.ui.row([mainCol, rail], { align: "top", gap: "large" })];
   }
 
-  return zk.ui.column(
-    [
-      lead && leadBlock(lead, state),
-      lead && zk.ui.divider(),
-      ...visibleWidgets.map((w) => renderWidget(w, false)),
-      dispatches.length > 0 && zk.ui.divider(),
-      ...dispatches.flatMap((a, idx): Child[] => [
-        dispatchBlock(a, state),
-        idx < dispatches.length - 1 && zk.ui.divider(),
-      ]),
-    ],
-    { gap: "medium" },
-  );
+  return [
+    lead && leadBlock(lead, state),
+    lead && zk.ui.divider(),
+    ...visibleWidgets.map((w) => renderWidget(w, false)),
+    dispatches.length > 0 && zk.ui.divider(),
+    ...dispatches.flatMap((a, idx): Child[] => [
+      dispatchBlock(a, state),
+      idx < dispatches.length - 1 && zk.ui.divider(),
+    ]),
+  ];
 }
 
-function renderListingsTab(tab: Extract<GazetteTab, { kind: "listings" }>, state: State): Block {
+function renderListingsTab(tab: Extract<GazetteTab, { kind: "listings" }>, state: State): Child[] {
   const categories = [...new Set(tab.items.map((i) => i.category).filter((c): c is string => Boolean(c)))];
   const newCount = tab.items.filter((c) => c.isNew).length;
   const active = state.filters[tab.id] ?? "all";
@@ -814,63 +808,60 @@ function renderListingsTab(tab: Extract<GazetteTab, { kind: "listings" }>, state
     return c.category === active;
   });
 
-  return zk.ui.column(
-    [
-      zk.ui.row(
-        [
-          label(tab.heading ?? tab.title),
-          zk.ui.text("Tap any item to preview details", {
-            width: "auto",
-            font: "sans",
-            size: "xsmall",
-            tone: "secondary",
-          }),
-        ],
-        { align: "center" },
-      ),
-      chips.length > 1 &&
-        zk.ui.chips({
-          id: `filter:${tab.id}`,
-          select: "one",
-          chips,
-          selected: [active],
+  return [
+    zk.ui.row(
+      [
+        label(tab.heading ?? tab.title),
+        zk.ui.text("Tap any item to preview details", {
+          width: "auto",
+          font: "sans",
+          size: "xsmall",
+          tone: "secondary",
         }),
-      ...filtered.map((c) =>
-        zk.ui.box(
-          zk.ui.column(
-            [
-              zk.ui.row(
-                [
-                  zk.ui.text(`${c.when}  ·  ${c.venue}`, { font: "sans", size: "small", weight: "bold" }),
-                  c.isNew && pill("NEW", "10%"),
-                  c.meta &&
-                    zk.ui.text(c.meta, { width: "auto", font: "sans", size: "small", tone: "secondary" }),
-                ],
-                { align: "center", gap: "small" },
-              ),
-              zk.ui.text(c.title, { font: "serif", weight: "bold", size: "large", lines: 2 }),
-              c.subtitle && zk.ui.text(c.subtitle, { font: "sans", size: "small", tone: "secondary" }),
-              c.summary && zk.ui.text(c.summary, { font: "serif", size: "body", lines: 2 }),
-              c.note &&
-                zk.ui.text(c.note, { font: "serif", italic: true, size: "small", tone: "secondary", lines: 2 }),
-            ],
-            { gap: "xsmall" },
-          ),
-          {
-            id: `listing:${tab.id}:${c.id}`,
-            border: "thin",
-            fill: c.isNew ? "light" : "none",
-            pad: "medium",
-            radius: "small",
-          },
+      ],
+      { align: "center" },
+    ),
+    chips.length > 1 &&
+      zk.ui.chips({
+        id: `filter:${tab.id}`,
+        select: "one",
+        chips,
+        selected: [active],
+      }),
+    ...filtered.map((c) =>
+      zk.ui.box(
+        zk.ui.column(
+          [
+            zk.ui.row(
+              [
+                zk.ui.text(`${c.when}  ·  ${c.venue}`, { font: "sans", size: "small", weight: "bold" }),
+                c.isNew && pill("NEW", "10%"),
+                c.meta &&
+                  zk.ui.text(c.meta, { width: "auto", font: "sans", size: "small", tone: "secondary" }),
+              ],
+              { align: "center", gap: "small" },
+            ),
+            zk.ui.text(c.title, { font: "serif", weight: "bold", size: "large", lines: 2 }),
+            c.subtitle && zk.ui.text(c.subtitle, { font: "sans", size: "small", tone: "secondary" }),
+            c.summary && zk.ui.text(c.summary, { font: "serif", size: "body", lines: 2 }),
+            c.note &&
+              zk.ui.text(c.note, { font: "serif", italic: true, size: "small", tone: "secondary", lines: 2 }),
+          ],
+          { gap: "xsmall" },
         ),
+        {
+          id: `listing:${tab.id}:${c.id}`,
+          border: "thin",
+          fill: c.isNew ? "light" : "none",
+          pad: "medium",
+          radius: "small",
+        },
       ),
-    ],
-    { gap: "medium" },
-  );
+    ),
+  ];
 }
 
-function renderAgendaTab(tab: Extract<GazetteTab, { kind: "agenda" }>): Block {
+function renderAgendaTab(tab: Extract<GazetteTab, { kind: "agenda" }>): Child[] {
   const todayCol = zk.ui.column(
     [
       label(tab.todayTitle ?? "Today"),
@@ -951,18 +942,13 @@ function renderAgendaTab(tab: Extract<GazetteTab, { kind: "agenda" }>): Block {
     { gap: "medium", width: wideLayout() ? "44%" : "fill" },
   );
 
-  return zk.ui.column(
-    [
-      tab.sourceNote && zk.ui.text(tab.sourceNote, { font: "sans", size: "small", tone: "secondary" }),
-      wideLayout()
-        ? zk.ui.row([todayCol, sideCol], { align: "top", gap: "large" })
-        : zk.ui.column([todayCol, sideCol], { gap: "medium" }),
-    ],
-    { gap: "medium" },
-  );
+  return [
+    tab.sourceNote && zk.ui.text(tab.sourceNote, { font: "sans", size: "small", tone: "secondary" }),
+    ...(wideLayout() ? [zk.ui.row([todayCol, sideCol], { align: "top", gap: "large" })] : [todayCol, sideCol]),
+  ];
 }
 
-function renderArticlesTab(tab: Extract<GazetteTab, { kind: "articles" }>, state: State): Block {
+function renderArticlesTab(tab: Extract<GazetteTab, { kind: "articles" }>, state: State): Child[] {
   const active = state.filters[tab.id] ?? "all";
   const unread = tab.items.filter((a) => !state.readIds.includes(a.id)).length;
   const saved = tab.items.filter((a) => state.savedIds.includes(a.id)).length;
@@ -972,94 +958,88 @@ function renderArticlesTab(tab: Extract<GazetteTab, { kind: "articles" }>, state
     return true;
   });
 
-  return zk.ui.column(
-    [
-      label(tab.heading ?? `${tab.title} · Opens in Preview`),
-      zk.ui.chips({
-        id: `filter:${tab.id}`,
-        select: "one",
-        chips: [
-          { id: "all", title: `All (${tab.items.length})` },
-          { id: "unread", title: `Unread (${unread})` },
-          { id: "saved", title: `Saved (${saved})` },
-        ],
-        selected: [active],
-      }),
-      filtered.length === 0 &&
-        zk.ui.notice(
-          active === "saved"
-            ? "Nothing saved to Zotero from this edition yet. Highlight in Preview or tap ☆ Save to Zotero."
-            : "You have read every piece in this section.",
-        ),
-      ...filtered.map((a) =>
-        zk.ui.box(
-          zk.ui.column(
-            [
-              zk.ui.box(
-                zk.ui.column(
-                  [
-                    zk.ui.row(
-                      [
-                        zk.ui.text(a.kicker ?? a.source ?? "ARTICLE", { style: "label", caps: true }),
-                        a.isNew && pill("NEW", "10%"),
-                        zk.ui.text([a.source, a.readTime].filter(Boolean).join(" · "), {
-                          width: "auto",
-                          font: "sans",
-                          size: "xsmall",
-                          tone: "secondary",
-                        }),
-                      ],
-                      { align: "center", gap: "small" },
-                    ),
-                    zk.ui.text(a.title, { font: "serif", weight: "bold", size: "large", lines: 2 }),
-                    a.summary && zk.ui.text(a.summary, { font: "serif", size: "body", lines: 3 }),
-                    a.whyNote &&
-                      zk.ui.text(`Why today: ${a.whyNote}`, {
-                        font: "serif",
-                        italic: true,
-                        size: "small",
-                        tone: "secondary",
-                        lines: 2,
-                      }),
-                  ],
-                  { gap: "xsmall" },
-                ),
-                { id: `read:${a.id}`, pad: "none" },
-              ),
-              zk.ui.divider(),
-              articleActionRow(a, state),
-            ],
-            { gap: "small" },
-          ),
-          { border: "thin", pad: "medium", radius: "small" },
-        ),
+  return [
+    label(tab.heading ?? `${tab.title} · Opens in Preview`),
+    zk.ui.chips({
+      id: `filter:${tab.id}`,
+      select: "one",
+      chips: [
+        { id: "all", title: `All (${tab.items.length})` },
+        { id: "unread", title: `Unread (${unread})` },
+        { id: "saved", title: `Saved (${saved})` },
+      ],
+      selected: [active],
+    }),
+    filtered.length === 0 &&
+      zk.ui.notice(
+        active === "saved"
+          ? "Nothing saved to Zotero from this edition yet. Highlight in Preview or tap ☆ Save to Zotero."
+          : "You have read every piece in this section.",
       ),
-    ],
-    { gap: "medium" },
-  );
+    ...filtered.map((a) =>
+      zk.ui.box(
+        zk.ui.column(
+          [
+            zk.ui.box(
+              zk.ui.column(
+                [
+                  zk.ui.row(
+                    [
+                      zk.ui.text(a.kicker ?? a.source ?? "ARTICLE", { style: "label", caps: true }),
+                      a.isNew && pill("NEW", "10%"),
+                      zk.ui.text([a.source, a.readTime].filter(Boolean).join(" · "), {
+                        width: "auto",
+                        font: "sans",
+                        size: "xsmall",
+                        tone: "secondary",
+                      }),
+                    ],
+                    { align: "center", gap: "small" },
+                  ),
+                  zk.ui.text(a.title, { font: "serif", weight: "bold", size: "large", lines: 2 }),
+                  a.summary && zk.ui.text(a.summary, { font: "serif", size: "body", lines: 3 }),
+                  a.whyNote &&
+                    zk.ui.text(`Why today: ${a.whyNote}`, {
+                      font: "serif",
+                      italic: true,
+                      size: "small",
+                      tone: "secondary",
+                      lines: 2,
+                    }),
+                ],
+                { gap: "xsmall" },
+              ),
+              { id: `read:${a.id}`, pad: "none" },
+            ),
+            zk.ui.divider(),
+            articleActionRow(a, state),
+          ],
+          { gap: "small" },
+        ),
+        { border: "thin", pad: "medium", radius: "small" },
+      ),
+    ),
+  ];
 }
 
-function renderBriefsTab(tab: Extract<GazetteTab, { kind: "briefs" }>): Block {
-  return zk.ui.column(
-    [
-      label(tab.heading ?? tab.title),
-      ...tab.items.map((b) =>
-        zk.ui.box(
-          zk.ui.column(
-            [
-              b.kicker && label(b.kicker),
-              zk.ui.text(b.title, { font: "serif", weight: "bold", size: "large" }),
-              ...b.bullets.map((line) => zk.ui.text(`•  ${line}`, { font: "serif", size: "body" })),
-              b.note && zk.ui.text(b.note, { font: "serif", italic: true, size: "small", tone: "secondary" }),
-            ],
-            { gap: "xsmall" },
-          ),
-          { border: "thin", pad: "medium", radius: "small" },
+function renderBriefsTab(tab: Extract<GazetteTab, { kind: "briefs" }>): Child[] {
+  return [
+    label(tab.heading ?? tab.title),
+    ...tab.items.map((b) =>
+      zk.ui.box(
+        zk.ui.column(
+          [
+            b.kicker && label(b.kicker),
+            zk.ui.text(b.title, { font: "serif", weight: "bold", size: "large" }),
+            ...b.bullets.map((line) => zk.ui.text(`•  ${line}`, { font: "serif", size: "body" })),
+            b.note && zk.ui.text(b.note, { font: "serif", italic: true, size: "small", tone: "secondary" }),
+          ],
+          { gap: "xsmall" },
         ),
+        { border: "thin", pad: "medium", radius: "small" },
       ),
-    ],
-    { gap: "medium" },
-  );
+    ),
+  ];
 }
 
 // ───────────────────────────── Active Preview Tracking ─────────────────────────────
@@ -1140,7 +1120,7 @@ zk.screen("front", {
     ];
 
     const activeTab = ed.tabs.find((t) => t.id === state.tab);
-    let body: Block;
+    let body: Child[];
     if (!activeTab) body = renderFrontPage(ed, state, prefs);
     else if (activeTab.kind === "listings") body = renderListingsTab(activeTab, state);
     else if (activeTab.kind === "agenda") body = renderAgendaTab(activeTab);
@@ -1151,7 +1131,7 @@ zk.screen("front", {
       [
         masthead(ed),
         segmented(segments, activeTab ? activeTab.id : "front"),
-        body,
+        ...body,
         noticeText && zk.ui.notice(noticeText),
       ],
       { gap: "medium" },
