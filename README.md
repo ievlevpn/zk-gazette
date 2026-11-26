@@ -72,6 +72,52 @@ Then run ~/gazette/generate.py and ~/gazette/validate.py ~/gazette/today.json.
 
 ---
 
+## Customizing on the Server Side
+
+You **never** need to modify, rebuild, or reinstall the Kindle plugin to change what Gazette shows or how it looks. The Kindle plugin is a thin native renderer for `today.json`; all customization happens on your server (or GitHub repo) across three files:
+
+| Server file | What it controls | When to edit it |
+| --- | --- | --- |
+| `config.json` | **Inputs & curation:** masthead title, city/weather coordinates, `.ics` calendar URLs, RSS feeds, watched event pages, reader interests prompt, `claude`/`gemini`/`none` curation mode. | Adding/removing feeds, venues, calendars, or changing topics. |
+| `sources/*.py` | **Custom scrapers, widgets & tabs:** standalone scripts (Python or any executable) that print JSON `{ articles?, listings?, widgets?, tabs? }` to stdout. | Adding ArXiv watches, custom site scrapers, stats/almanac widgets, or whole custom tabs. |
+| `template.py` | **Layout & design:** widget selection/order, tab order, and the declarative `layout` tree (`portrait`, `landscape`, `compact`) rendered on the Front Page. | Changing columns, borders, typography, moving widgets, or building a completely different Front Page. |
+
+### The Server-Side Iteration Loop
+
+1. Edit `config.json`, `sources/*.py`, or `template.py` on your server (manually or via an AI agent).
+2. Regenerate and check your edition:
+   ```sh
+   python3 generator/generate.py --config generator/config.json
+   python3 generator/validate.py generator/today.json
+   ```
+3. Tap **Refresh** in Gazette's masthead on your Kindle (or reopen Gazette) — the new layout/content appears immediately with zero plugin rebuilds.
+
+### Declarative UI Building Blocks (`GazetteNode`)
+
+Both `layout` (`portrait` / `landscape` / `compact` in `template.py`), `kind: "custom"` widgets (`node`), and `kind: "custom"` tabs (`blocks`) use the same JSON node tree, rendered natively with e-ink UI primitives:
+
+- **Layout containers:**
+  - `{"kind": "column", "gap": "none|xsmall|small|medium|large", "width": "fill|auto|60%", "children": [...]}`
+  - `{"kind": "row", "gap": "...", "align": "top|center|bottom|stretch", "width": "...", "children": [...]}` *(up to 12 children)*
+  - `{"kind": "box", "border": "none|thin|thick", "fill": "none|light|ink", "pad": "...", "radius": "none|small|round", "width": "...", "child": {...}}`
+- **Content & typography:**
+  - `{"kind": "text", "text": "...", "style": "title|body|meta|label", "font": "serif|sans", "weight": "regular|medium|bold", "size": "xsmall|small|body|large|title", "tone": "ink|secondary", "align": "start|center|end", "caps": true, "italic": false, "lines": 2}`
+  - `{"kind": "pill", "text": "NEW", "width": "14%", "tone": "ink|light"}`
+  - `{"kind": "quote", "text": "...", "source": "..."}`, `{"kind": "notice", "text": "..."}`, `{"kind": "divider"}`, `{"kind": "space"}`, `{"kind": "spacer"}`
+- **Embedding built-in Gazette pieces anywhere:**
+  - `{"kind": "widget", "widgetId": "weather"}` — embeds any widget from `edition.widgets` (respecting the user's Settings toggles).
+  - `{"kind": "article", "articleId": "story-1", "variant": "lead|dispatch"}` — embeds a full article card with **Read in Preview** and **Save to Zotero** actions.
+- **Interactive tap actions (on any `box` or `text` node):**
+  - `"openArticle": "<article-id>"` — opens that article in Preview
+  - `"openListing": "<listing-id>"` — opens that event/listing sheet in Preview
+  - `"openTab": "<tab-id>"` — jumps straight to a tab
+  - `"saveArticle": "<article-id>"` — saves that article to Zotero (`text` nodes)
+- **Responsive layouts & pagination tips:**
+  - `layout.portrait` is used on Scribe/large screens in portrait, `layout.landscape` in landscape (e.g. a 3-column broadsheet), and `layout.compact` on Paperwhite/basic Kindles. Omit `layout` altogether to fall back to Gazette's built-in Front Page.
+  - Inside a `kind: "custom"` tab, put each card directly in the top-level `blocks` array (don't wrap all cards inside one outer `column`) so Gazette's multi-page e-ink pager splits cleanly between cards. `validate.py` checks this automatically.
+
+---
+
 ## Manual Setup & Zero-Server Hosting
 
 The included [`generator/`](generator/) uses **Python 3 standard library only** (zero `pip install` needed):
