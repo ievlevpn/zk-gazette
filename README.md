@@ -95,7 +95,7 @@ Schedule it daily with `cron`:
 
 Gazette checks two sources automatically:
 
-1. **HTTPS URL (recommended for most users):** Host `today.json` at any HTTPS URL and paste it in **Gazette → Settings ›** (or `settings.json`, see [`settings.example.json`](settings.example.json)). Gazette refreshes hourly in the background and shows a **"New edition"** badge on Home when a new `id` arrives.
+1. **HTTPS URL (recommended for most users):** Host `today.json` at any HTTPS URL and paste it in **Gazette → Settings ›** (or `settings.json`, see [`settings.example.json`](settings.example.json)). Gazette automatically pulls the latest edition when you open the plugin, and you can force an immediate pull anytime via **Refresh** in the masthead.
 2. **Local drop (`data/edition.json`):** For completely private editions (e.g., personal calendars on a home server), push `today.json` over SSH or USB directly to `<plugin-data-dir>/edition.json` (Gazette reads it via `zk.files` with zero public exposure).
 
 ---
@@ -195,8 +195,7 @@ Tap **Settings ›** in Gazette's masthead:
 
 ## Permissions
 
-- `net:*` — fetch your configured Edition JSON URL.
-- `background` — check for a fresh edition after sync (at most hourly) and badge the Plugins icon.
+- `net:*` — fetch your configured Edition JSON URL when Gazette opens or when you tap **Refresh**.
 - `zotero:create-items`, `zotero:notes`, `zotero:tags` — used **only** when you explicitly choose to save an article (and any Preview highlights) to Zotero.
 
 ## Build

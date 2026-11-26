@@ -132,12 +132,14 @@ async function resolveEdition(state: State, prefs: Prefs): Promise<{ edition: Ga
   return { edition: applyTitle(SAMPLE_EDITION), source: "sample" };
 }
 
-// ───────────────────────────── Edition Fetching & Background Refresh ─────────────────────────────
+// ───────────────────────────── Edition Fetching ─────────────────────────────
 
-async function fetchEdition(url: string): Promise<{ edition: GazetteEdition; isNew: boolean }> {
+const OPEN_REFRESH_MIN_AGE_MS = 5 * 60 * 1000;
+
+async function fetchEdition(url: string, timeout = 12000): Promise<{ edition: GazetteEdition; isNew: boolean }> {
   const clean = url.trim();
   if (!clean) throw new Error("Set an Edition JSON URL in Settings first.");
-  const res = await zk.fetch(clean, { timeout: 12000 });
+  const res = await zk.fetch(clean, { timeout });
   if (!res.ok) throw new Error(`HTTP ${res.status} from edition URL`);
   const parsed = parseEdition(await res.json());
   let isNew = false;
@@ -149,26 +151,6 @@ async function fetchEdition(url: string): Promise<{ edition: GazetteEdition; isN
   });
   return { edition: parsed, isNew };
 }
-
-zk.background(async () => {
-  const prefs = await loadPrefs();
-  const s = await loadState();
-  if (prefs.url.trim()) {
-    try {
-      const { edition, isNew } = await fetchEdition(prefs.url);
-      if (isNew || s.lastSeenEditionId !== edition.id) zk.setBadge("New edition");
-      zk.ui.refresh();
-      return;
-    } catch (e) {
-      console.warn("gazette background fetch failed:", String(e));
-    }
-  }
-  const local = await readLocalEdition();
-  if (local && s.lastSeenEditionId !== local.id) {
-    zk.setBadge("New edition");
-    zk.ui.refresh();
-  }
-});
 
 // ───────────────────────────── Zotero Saving (Opt-In Only) ─────────────────────────────
 
@@ -303,6 +285,13 @@ function masthead(ed: GazetteEdition): Block {
               tone: "secondary",
               align: "end",
             }),
+          zk.ui.text("Refresh", {
+            id: "refresh-edition",
+            width: "auto",
+            font: "sans",
+            size: "xsmall",
+            weight: "medium",
+          }),
           zk.ui.text("Settings ›", {
             id: "open-settings",
             width: "auto",
@@ -1164,8 +1153,22 @@ zk.screen("front", {
     if (e.kind === "open") {
       noticeText = null;
       zk.setBadge(null);
+      let seenId = ed.id;
+      if (prefs.url.trim()) {
+        const lastMs = state.fetchedAt ? Date.parse(state.fetchedAt) : 0;
+        const isStale = !state.cached || !lastMs || Date.now() - lastMs >= OPEN_REFRESH_MIN_AGE_MS;
+        if (isStale) {
+          try {
+            const { edition, isNew } = await fetchEdition(prefs.url, 8000);
+            seenId = edition.id;
+            if (isNew) noticeText = `Updated to “${edition.title}” (${edition.dateLine}).`;
+          } catch (err) {
+            console.warn("gazette refresh on open failed:", String(err));
+          }
+        }
+      }
       await patchState((s) => {
-        s.lastSeenEditionId = ed.id;
+        s.lastSeenEditionId = seenId;
       });
       return;
     }
@@ -1206,6 +1209,33 @@ zk.screen("front", {
     }
 
     if (e.kind !== "tap") return;
+
+    if (e.id === "refresh-edition") {
+      if (prefs.url.trim()) {
+        try {
+          const { edition, isNew } = await fetchEdition(prefs.url);
+          await patchState((s) => {
+            s.lastSeenEditionId = edition.id;
+          });
+          noticeText = isNew
+            ? `Loaded “${edition.title}” (${edition.dateLine}).`
+            : `Already up to date (${edition.dateLine}).`;
+        } catch (err) {
+          noticeText = `Refresh failed: ${String(err)}`;
+        }
+        return;
+      }
+      const local = await readLocalEdition();
+      if (local) {
+        await patchState((s) => {
+          s.lastSeenEditionId = local.id;
+        });
+        noticeText = `Reloaded local edition (${local.dateLine}).`;
+      } else {
+        noticeText = "Using Sample Edition. Set an Edition URL in Settings › to fetch.";
+      }
+      return;
+    }
 
     if (e.id === "open-settings") {
       zk.ui.open("settings");
