@@ -113,6 +113,12 @@ export type GazetteWidget =
       title?: string;
       text: string;
       source?: string;
+    }
+  | {
+      id: string;
+      kind: "custom";
+      title?: string;
+      node: GazetteNode;
     };
 
 export type GazetteTab =
@@ -149,6 +155,12 @@ export type GazetteTab =
       kind: "briefs";
       heading?: string;
       items: GazetteBrief[];
+    }
+  | {
+      id: string;
+      title: string;
+      kind: "custom";
+      blocks: GazetteNode[];
     };
 
 export type GazetteNode =
@@ -299,6 +311,14 @@ function parseWidget(raw: unknown, idx: number): GazetteWidget | null {
         text: w.text,
         source: typeof w.source === "string" ? w.source : undefined,
       };
+    case "custom":
+      if (!w.node || typeof w.node !== "object" || Array.isArray(w.node)) return null;
+      return {
+        id,
+        kind: "custom",
+        title,
+        node: w.node as GazetteNode,
+      };
     default:
       return null;
   }
@@ -360,6 +380,13 @@ export function parseEdition(raw: unknown): GazetteEdition {
         kind: "briefs",
         heading: typeof tab.heading === "string" ? tab.heading : undefined,
         items: tab.items as GazetteBrief[],
+      });
+    } else if (kind === "custom" && Array.isArray(tab.blocks)) {
+      tabs.push({
+        id: tabId,
+        title: tabTitle,
+        kind: "custom",
+        blocks: tab.blocks.filter((x): x is GazetteNode => Boolean(x && typeof x === "object" && !Array.isArray(x))),
       });
     }
   }
@@ -460,6 +487,8 @@ export function widgetLabel(w: GazetteWidget): string {
       return "Daily Note";
     case "quote":
       return "Epigraph";
+    case "custom":
+      return "Widget";
   }
 }
 

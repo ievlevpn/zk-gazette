@@ -37,12 +37,13 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-# Ensure template.py in the same folder is importable regardless of cwd.
+# Ensure template.py and validate.py in the same folder are importable regardless of cwd.
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import template  # noqa: E402
+import validate  # noqa: E402
 
-USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gazette/0.1"
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gazette/0.2"
 
 WMO_CODES = {
     0: "Clear sky",
@@ -446,6 +447,80 @@ def fetch_watch_pages(watches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return pages
 
 
+# ───────────────────────────── 4b. Drop-in Custom Sources (sources/) ─────────────────────────────
+
+
+def run_custom_sources(
+    sources_dir: Path,
+    cfg_path: Path,
+    state_path: Path,
+    date_str: str,
+) -> dict[str, list[dict[str, Any]]]:
+    """Runs every non-underscore `.py` or executable script in `sources/` and merges stdout JSON."""
+    merged: dict[str, list[dict[str, Any]]] = {
+        "articles": [],
+        "listings": [],
+        "widgets": [],
+        "tabs": [],
+    }
+    if not sources_dir.is_dir():
+        return merged
+
+    env = {
+        **os.environ,
+        "GAZETTE_CONFIG": str(cfg_path),
+        "GAZETTE_DATE": date_str,
+        "GAZETTE_STATE": str(state_path),
+    }
+
+    for entry in sorted(sources_dir.iterdir()):
+        if not entry.is_file() or entry.name.startswith(("_", ".")):
+            continue
+        if entry.suffix == ".py":
+            cmd = [sys.executable, str(entry)]
+        elif os.access(entry, os.X_OK):
+            cmd = [str(entry)]
+        else:
+            continue
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                env=env,
+                check=False,
+            )
+            if proc.returncode != 0:
+                print(
+                    f"[warn] source {entry.name} exited {proc.returncode}: {proc.stderr.strip()[:240]}",
+                    file=sys.stderr,
+                )
+                continue
+            raw_out = proc.stdout.strip()
+            if not raw_out:
+                continue
+            data = json.loads(raw_out)
+            if not isinstance(data, dict):
+                print(f"[warn] source {entry.name} stdout must be a JSON object", file=sys.stderr)
+                continue
+            counts: list[str] = []
+            for key in ("articles", "listings", "widgets", "tabs"):
+                items = data.get(key)
+                if isinstance(items, list):
+                    valid_items = [x for x in items if isinstance(x, dict)]
+                    merged[key].extend(valid_items)
+                    if valid_items:
+                        counts.append(f"{len(valid_items)} {key}")
+            if counts:
+                print(f"[ok] source {entry.name}: {', '.join(counts)}")
+        except Exception as exc:
+            print(f"[warn] source {entry.name} failed: {exc}", file=sys.stderr)
+    return merged
+
+
 # ───────────────────────────── 5. Single Daily LLM Curation Pass ─────────────────────────────
 
 
@@ -584,13 +659,18 @@ def build_articles(
     llm_data: dict[str, Any] | None,
     seen_articles: set[str],
     fetch_full_html: bool = True,
+    pinned_articles: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     by_id = {a["id"]: a for a in rss_candidates}
     chosen: list[dict[str, Any]] = []
+    if pinned_articles:
+        for a in pinned_articles:
+            aid = str(a.get("id") or "custom-" + hashlib.sha1(str(a.get("title", "")).encode("utf-8")).hexdigest()[:10])
+            chosen.append({**a, "id": aid})
     if llm_data and isinstance(llm_data.get("picks"), list):
         for p in llm_data["picks"]:
             base = by_id.get(p.get("id", ""))
-            if not base:
+            if not base or any(c["id"] == base["id"] for c in chosen):
                 continue
             chosen.append(
                 {
@@ -602,10 +682,12 @@ def build_articles(
                     "tags": p.get("tags") or [],
                 }
             )
-    if not chosen:
+    if len(chosen) < 4 and rss_candidates:
         # Deterministic diverse fallback: 1 from each source first.
-        seen_src: set[str] = set()
+        seen_src: set[str] = {c.get("source", "") for c in chosen if c.get("source")}
         for a in rss_candidates:
+            if any(c["id"] == a["id"] for c in chosen):
+                continue
             if a["source"] not in seen_src:
                 seen_src.add(a["source"])
                 chosen.append(dict(a))
@@ -617,40 +699,41 @@ def build_articles(
                     chosen.append(dict(a))
                 if len(chosen) >= 4:
                     break
-        if chosen:
-            chosen[0]["lead"] = True
 
     if chosen and not any(c.get("lead") for c in chosen):
         chosen[0]["lead"] = True
 
     final_articles: list[dict[str, Any]] = []
-    for a in chosen[:5]:
+    limit = max(5, len(pinned_articles or []) + 4)
+    for a in chosen[:limit]:
+        custom_html = a.get("html") if isinstance(a.get("html"), str) and a["html"].strip() else ""
         body_html = ""
-        if a.get("feed_html"):
-            body_html = clean_article_html(a["feed_html"])
-        elif fetch_full_html and a.get("url"):
-            try:
-                body_html = clean_article_html(http_get(a["url"], timeout=10))
-            except Exception as exc:
-                print(f"[warn] full text fetch skipped ({a.get('url')}): {exc}", file=sys.stderr)
-        word_count = len(strip_tags(body_html or a.get("summary", "")).split())
+        if not custom_html:
+            if a.get("feed_html"):
+                body_html = clean_article_html(a["feed_html"])
+            elif fetch_full_html and a.get("url"):
+                try:
+                    body_html = clean_article_html(http_get(a["url"], timeout=10))
+                except Exception as exc:
+                    print(f"[warn] full text fetch skipped ({a.get('url')}): {exc}", file=sys.stderr)
+        word_count = len(strip_tags(custom_html or body_html or a.get("summary", "")).split())
         read_min = max(2, round(word_count / 230))
         art = {
             "id": a["id"],
             "lead": bool(a.get("lead")),
-            "isNew": a["id"] not in seen_articles,
+            "isNew": bool(a.get("isNew")) if "isNew" in a else (a["id"] not in seen_articles),
             "kicker": a.get("kicker", "READ"),
             "title": a["title"],
             "source": a.get("source", ""),
             "author": a.get("author", ""),
             "date": a.get("date", ""),
             "url": a.get("url", ""),
-            "readTime": f"{read_min} min read",
+            "readTime": a.get("readTime") or f"{read_min} min read",
             "summary": a.get("summary", ""),
             "whyNote": a.get("whyNote", ""),
             "tags": a.get("tags", []),
         }
-        art["html"] = wrap_article_html(art, body_html)
+        art["html"] = custom_html or wrap_article_html(art, body_html)
         final_articles.append(art)
     return final_articles
 
@@ -725,30 +808,39 @@ def build_concerts(
     watch_pages: list[dict[str, Any]],
     today: dt.date,
     seen_concerts: set[str],
+    extra_listings: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     raw = llm_data.get("concerts", []) if (llm_data and isinstance(llm_data.get("concerts"), list)) else []
     if not raw:
         raw = parse_concerts_fallback(watch_pages, today)
+    combined = [*(extra_listings or []), *raw]
     out: list[dict[str, Any]] = []
-    for idx, c in enumerate(raw[:8]):
+    seen_ids: set[str] = set()
+    for idx, c in enumerate(combined[:12]):
         if not isinstance(c, dict) or not c.get("title"):
             continue
         cid = str(c.get("id") or f"watch-{idx}-{hashlib.sha1(c['title'].encode()).hexdigest()[:8]}")
-        out.append(
-            {
-                "id": cid,
-                "isNew": cid not in seen_concerts,
-                "when": str(c.get("when", "")),
-                "venue": str(c.get("venue", "")),
-                "category": str(c.get("category", "")),
-                "title": str(c.get("title", "")),
-                "subtitle": str(c.get("subtitle", "")),
-                "meta": str(c.get("meta", "")),
-                "summary": str(c.get("summary", "")),
-                "note": str(c.get("note", "")),
-                "url": str(c.get("url", "")),
-            }
-        )
+        if cid in seen_ids:
+            continue
+        seen_ids.add(cid)
+        item: dict[str, Any] = {
+            "id": cid,
+            "isNew": bool(c.get("isNew")) if "isNew" in c else (cid not in seen_concerts),
+            "when": str(c.get("when", "")),
+            "venue": str(c.get("venue", "")),
+            "category": str(c.get("category", "")),
+            "title": str(c.get("title", "")),
+            "subtitle": str(c.get("subtitle", "")),
+            "meta": str(c.get("meta", "")),
+            "summary": str(c.get("summary", "")),
+            "note": str(c.get("note", "")),
+            "url": str(c.get("url", "")),
+        }
+        if isinstance(c.get("details"), list):
+            item["details"] = c["details"]
+        if isinstance(c.get("html"), str) and c["html"].strip():
+            item["html"] = c["html"]
+        out.append(item)
     return out
 
 
@@ -802,14 +894,35 @@ def main() -> int:
     agenda = fetch_calendar(cfg, now, tz)
     rss_candidates = fetch_rss_items(cfg.get("feeds", []), max_per_feed=int(cfg.get("max_per_feed", 5)))
     watch_pages = fetch_watch_pages(cfg.get("watches", []))
+
+    sources_dir = Path(cfg.get("sources_dir") or (cfg_path.parent / "sources")).expanduser().resolve()
+    custom = run_custom_sources(sources_dir, cfg_path, state_path, now.strftime("%Y-%m-%d"))
+    pinned_articles: list[dict[str, Any]] = []
+    for a in custom["articles"]:
+        if not a.get("title"):
+            continue
+        normalized = {
+            **a,
+            "id": str(a.get("id") or "custom-" + hashlib.sha1(str(a["title"]).encode("utf-8")).hexdigest()[:10]),
+            "source": str(a.get("source", "Custom")),
+            "kicker": str(a.get("kicker", "CUSTOM")),
+            "author": str(a.get("author", "")),
+            "date": str(a.get("date", now.strftime("%Y-%m-%d"))),
+            "summary": str(a.get("summary", "")),
+        }
+        if a.get("keep"):
+            pinned_articles.append(normalized)
+        else:
+            rss_candidates.append(normalized)
+
     print(f"[gazette] fetched {len(rss_candidates)} RSS items, {len(watch_pages)} watch pages, {len(agenda['today'])} events today.")
 
     llm_data = run_llm_curation(cfg, now, rss_candidates, watch_pages, agenda["today"])
     seen_articles = set(state.get("seen_articles", []))
     seen_concerts = set(state.get("seen_concerts", []))
 
-    articles = build_articles(rss_candidates, llm_data, seen_articles)
-    concerts = build_concerts(llm_data, watch_pages, now.date(), seen_concerts)
+    articles = build_articles(rss_candidates, llm_data, seen_articles, pinned_articles=pinned_articles)
+    concerts = build_concerts(llm_data, watch_pages, now.date(), seen_concerts, extra_listings=custom["listings"])
     quote = (llm_data or {}).get("quote") or {
         "text": "Reading is a conversation with the finest minds of past centuries.",
         "source": "René Descartes",
@@ -827,8 +940,16 @@ def main() -> int:
         "concerts": concerts,
         "articles": articles,
         "quote": quote,
+        "extra_widgets": custom["widgets"],
+        "extra_tabs": custom["tabs"],
     }
     edition = template.build_edition(ctx)
+
+    val_errors, val_warnings = validate.validate_edition(edition)
+    for w in val_warnings:
+        print(f"[validate warn] {w}", file=sys.stderr)
+    for e in val_errors:
+        print(f"[validate error] {e}", file=sys.stderr)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = out_path.with_suffix(".json.tmp")

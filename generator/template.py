@@ -95,6 +95,13 @@ def build_edition(ctx: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    # Merge drop-in widgets from generator/sources/ (same id replaces an earlier widget).
+    for w in ctx.get("extra_widgets") or []:
+        if not isinstance(w, dict) or not w.get("id"):
+            continue
+        widgets = [existing for existing in widgets if existing["id"] != w["id"]]
+        widgets.append(w)
+
     # Tabs shown across the segmented navigation bar.
     tabs: list[dict[str, Any]] = [
         {
@@ -130,6 +137,13 @@ def build_edition(ctx: dict[str, Any]) -> dict[str, Any]:
             "forecast": weather.get("days", []),
         }
     )
+
+    # Merge drop-in tabs from generator/sources/ (same id replaces an earlier tab).
+    for t in ctx.get("extra_tabs") or []:
+        if not isinstance(t, dict) or not t.get("id"):
+            continue
+        tabs = [existing for existing in tabs if existing["id"] != t["id"]]
+        tabs.append(t)
 
     # Declarative Front Page layout (portrait 2-column, landscape 3-column, compact 1-column).
     lead = next((a for a in articles if a.get("lead")), articles[0] if articles else None)
@@ -179,7 +193,7 @@ def build_edition(ctx: dict[str, Any]) -> dict[str, Any]:
                 "kind": "column",
                 "gap": "small",
                 "width": "29%",
-                "children": [{"kind": "widget", "widgetId": wid} for wid in non_quote_rail[:2]],
+                "children": [{"kind": "widget", "widgetId": wid} for wid in non_quote_rail[:3]],
             },
         ],
     }

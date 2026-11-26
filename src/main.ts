@@ -410,7 +410,17 @@ function dispatchBlock(article: GazetteArticle, state: State): Block {
 
 // ───────────────────────────── Modular Front Page Widgets ─────────────────────────────
 
-function renderWidget(w: GazetteWidget, compact: boolean): Block {
+function renderWidget(
+  w: GazetteWidget,
+  compact: boolean,
+  ed: GazetteEdition,
+  state: State,
+  prefs: Prefs,
+  widgetsById: Map<string, GazetteWidget>,
+  seq: { n: number },
+  depth = 0,
+): Child {
+  if (depth > 12) return null;
   switch (w.kind) {
     case "agenda": {
       const maxToday = compact ? Math.min(w.maxToday ?? 4, 4) : (w.maxToday ?? 4);
@@ -597,6 +607,9 @@ function renderWidget(w: GazetteWidget, compact: boolean): Block {
 
     case "quote":
       return zk.ui.quote({ text: w.text, source: w.source });
+
+    case "custom":
+      return renderCustomNode(w.node, ed, state, prefs, widgetsById, seq, compact, depth + 1);
   }
 }
 
@@ -673,7 +686,7 @@ function renderCustomNode(
     case "widget": {
       const w = widgetsById.get(node.widgetId);
       if (!w || prefs.hiddenWidgets.includes(w.id)) return null;
-      return renderWidget(w, compact);
+      return renderWidget(w, compact, ed, state, prefs, widgetsById, seq, depth + 1);
     }
     case "article": {
       const a = findArticle(ed, node.articleId);
@@ -706,7 +719,10 @@ function renderFrontPage(ed: GazetteEdition, state: State, prefs: Prefs): Child[
   const lead = articles.find((a) => a.lead) ?? articles[0];
   const dispatches = articles.filter((a) => a !== lead).slice(0, 3);
 
-  const visibleWidgets = resolveWidgets(ed).filter((w) => !prefs.hiddenWidgets.includes(w.id));
+  const allWidgets = resolveWidgets(ed);
+  const widgetsById = new Map(allWidgets.map((w) => [w.id, w]));
+  const seq = { n: 0 };
+  const visibleWidgets = allWidgets.filter((w) => !prefs.hiddenWidgets.includes(w.id));
   const quoteWidget = visibleWidgets.find((w) => w.kind === "quote");
   const railWidgets = visibleWidgets.filter((w) => !landscapeBroadsheet() || w !== quoteWidget);
 
@@ -741,7 +757,7 @@ function renderFrontPage(ed: GazetteEdition, state: State, prefs: Prefs): Child[
       [
         leadBlock(lead, state),
         quoteWidget && zk.ui.divider(),
-        quoteWidget && renderWidget(quoteWidget, true),
+        quoteWidget && renderWidget(quoteWidget, true, ed, state, prefs, widgetsById, seq),
       ],
       { gap: "small", width: "36%" },
     );
@@ -756,7 +772,7 @@ function renderFrontPage(ed: GazetteEdition, state: State, prefs: Prefs): Child[
       { gap: "small", width: "35%" },
     );
     const col3 = zk.ui.column(
-      railWidgets.slice(0, 2).map((w) => renderWidget(w, true)),
+      railWidgets.slice(0, 2).map((w) => renderWidget(w, true, ed, state, prefs, widgetsById, seq)),
       { gap: "small", width: "29%" },
     );
     return [zk.ui.row([col1, col2, col3], { align: "top", gap: "medium" })];
@@ -775,7 +791,7 @@ function renderFrontPage(ed: GazetteEdition, state: State, prefs: Prefs): Child[
   if (wideLayout()) {
     const mainCol = zk.ui.column(mainColChildren, { gap: "small", width: "60%" });
     const rail = zk.ui.column(
-      visibleWidgets.map((w) => renderWidget(w, false)),
+      visibleWidgets.map((w) => renderWidget(w, false, ed, state, prefs, widgetsById, seq)),
       { gap: "medium", width: "40%" },
     );
     return [zk.ui.row([mainCol, rail], { align: "top", gap: "large" })];
@@ -784,7 +800,7 @@ function renderFrontPage(ed: GazetteEdition, state: State, prefs: Prefs): Child[
   return [
     lead && leadBlock(lead, state),
     lead && zk.ui.divider(),
-    ...visibleWidgets.map((w) => renderWidget(w, false)),
+    ...visibleWidgets.map((w) => renderWidget(w, false, ed, state, prefs, widgetsById, seq)),
     dispatches.length > 0 && zk.ui.divider(),
     ...dispatches.flatMap((a, idx): Child[] => [
       dispatchBlock(a, state),
@@ -1125,7 +1141,11 @@ zk.screen("front", {
     else if (activeTab.kind === "listings") body = renderListingsTab(activeTab, state);
     else if (activeTab.kind === "agenda") body = renderAgendaTab(activeTab);
     else if (activeTab.kind === "briefs") body = renderBriefsTab(activeTab);
-    else body = renderArticlesTab(activeTab, state);
+    else if (activeTab.kind === "custom") {
+      const widgetsById = new Map(resolveWidgets(ed).map((w) => [w.id, w]));
+      const seq = { n: 0 };
+      body = activeTab.blocks.map((node) => renderCustomNode(node, ed, state, prefs, widgetsById, seq, false));
+    } else body = renderArticlesTab(activeTab, state);
 
     return zk.ui.column(
       [

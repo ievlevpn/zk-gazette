@@ -34,7 +34,28 @@ Set up Gazette (https://github.com/ievlevpn/zk-gazette) as my personal daily e-i
    - How I want to deliver today.json to my Kindle:
      (a) serve today.json over HTTPS (e.g. GitHub Pages, Cloudflare, or my web server) and enter that URL in Gazette → Settings, OR
      (b) push directly to my Kindle's Gazette data/edition.json over SSH.
-3. Write ~/gazette/config.json (keep it private, never commit it), test `python3 ~/gazette/generate.py --config ~/gazette/config.json`, verify the generated today.json is valid, and install a daily 06:30 cron job.
+3. Write ~/gazette/config.json (keep it private, never commit it), add any custom scrapers or widgets as standalone scripts in ~/gazette/sources/, run `python3 ~/gazette/generate.py --config ~/gazette/config.json` and `python3 ~/gazette/validate.py ~/gazette/today.json`, and install a daily 06:30 cron job.
+```
+
+### Add Custom Scrapers, Widgets & Tabs (`generator/sources/`)
+
+You do **not** need to fork or rebuild the Kindle plugin to add your own content sources, custom widgets, or custom tabs. Drop any `.py` (or executable) script into `generator/sources/` that prints a JSON object to stdout:
+
+```json
+{
+  "articles": [{ "id": "...", "title": "...", "url": "...", "summary": "...", "keep": true }],
+  "listings": [{ "id": "...", "when": "...", "venue": "...", "title": "..." }],
+  "widgets":  [{ "id": "my-widget", "kind": "custom", "title": "...", "node": { ... } }],
+  "tabs":     [{ "id": "my-tab", "title": "Desk", "kind": "custom", "blocks": [ ... ] }]
+}
+```
+
+`generate.py` automatically runs every non-underscore script in `sources/`, merges its articles, listings, widgets, and tabs into `today.json`, and validates the output with `validate.py`. See [`generator/sources/README.md`](generator/sources/README.md) and the starter templates (`_example_facts_widget.py`, `_example_custom_tab.py`).
+
+Or ask your AI agent directly:
+
+```text
+Add a custom Gazette source script at ~/gazette/sources/arxiv_watch.py that fetches yesterday's top 5 cs.LG papers, emits a `briefs` or `custom` tab called "ArXiv", and adds a compact summary widget on the Front Page. Test it with `python3 ~/gazette/generate.py --config ~/gazette/config.json` and `python3 ~/gazette/validate.py ~/gazette/today.json`.
 ```
 
 ### Redecorate Your Front Page Anytime
@@ -46,12 +67,12 @@ Edit ~/gazette/template.py to redecorate my Gazette Front Page:
 - Move Weather to a horizontal box across the top under the masthead
 - Keep the Lead story full-width, with 2 dispatches and my Calendar side-by-side underneath
 - Remove the Quote widget
-Then run ~/gazette/generate.py so I can preview today.json.
+Then run ~/gazette/generate.py and ~/gazette/validate.py ~/gazette/today.json.
 ```
 
 ---
 
-## Manual Setup
+## Manual Setup & Zero-Server Hosting
 
 The included [`generator/`](generator/) uses **Python 3 standard library only** (zero `pip install` needed):
 
@@ -59,6 +80,7 @@ The included [`generator/`](generator/) uses **Python 3 standard library only** 
 cp generator/config.example.json generator/config.json
 # Edit generator/config.json with your city, feeds, optional .ics calendar URLs, and watched pages
 python3 generator/generate.py --config generator/config.json
+python3 generator/validate.py generator/today.json
 ```
 
 Schedule it daily with `cron`:
@@ -66,6 +88,8 @@ Schedule it daily with `cron`:
 ```cron
 30 6 * * * PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin /usr/bin/python3 /path/to/generator/generate.py --config /path/to/generator/config.json >> /path/to/generator/logs/gazette.log 2>&1
 ```
+
+**No home server?** Copy [`generator/github-actions-example.yml`](generator/github-actions-example.yml) to `.github/workflows/gazette.yml` in your own repo and enable **GitHub Pages** — GitHub Actions builds and publishes `https://<user>.github.io/<repo>/today.json` every morning for free. *(Note: free GitHub Pages is public, so keep private `.ics` calendar URLs out of public Pages editions.)*
 
 ### Delivery Options
 
@@ -155,9 +179,9 @@ Any script or service can produce a Gazette edition. Only `title`, `dateLine`, a
 
 ### Supported Widgets & Tabs
 
-- **Front Page widgets (`widgets`):** `weather`, `agenda`, `listings`, `facts`, `note`, `quote`. Pass `"widgets": []` for an articles-only broadsheet with no sidebar, or omit `widgets` to let Gazette auto-compose a rail from your tabs. Every widget can also be toggled on/off in **Settings ›**.
-- **Tabs (`tabs`, up to 4):** `articles` (reads with All/Unread/Saved filters), `listings` (filterable events/watches with `NEW` badges), `agenda` (today + week + weather), and `briefs` (bulleted summaries).
-- **Custom server-side layout (`layout`):** Optional `{ portrait?, landscape?, compact? }` tree of declarative nodes (`column`, `row`, `box`, `text`, `pill`, `divider`, `space`, `spacer`, `notice`, `quote`, `widget`, `article`). See [`src/schema.ts`](src/schema.ts) and [`generator/template.py`](generator/template.py).
+- **Front Page widgets (`widgets`):** `weather`, `agenda`, `listings`, `facts`, `note`, `quote`, and `custom` (`{ id, kind: "custom", title?, node: GazetteNode }`). Pass `"widgets": []` for an articles-only broadsheet with no sidebar, or omit `widgets` to let Gazette auto-compose a rail from your tabs. Every widget can also be toggled on/off in **Settings ›**.
+- **Tabs (`tabs`, up to 4):** `articles` (reads with All/Unread/Saved filters), `listings` (filterable events/watches with `NEW` badges), `agenda` (today + week + weather), `briefs` (bulleted summaries), and `custom` (`{ id, title, kind: "custom", blocks: GazetteNode[] }` — put each card directly in `blocks` for automatic multi-page e-ink pagination).
+- **Custom server-side layout (`layout`):** Optional `{ portrait?, landscape?, compact? }` tree of declarative nodes (`column`, `row`, `box`, `text`, `pill`, `divider`, `space`, `spacer`, `notice`, `quote`, `widget`, `article`). See [`src/schema.ts`](src/schema.ts) and [`generator/template.py`](generator/template.py), and validate any hand-crafted JSON with `python3 generator/validate.py today.json`.
 
 ## Settings
 
